@@ -1,9 +1,11 @@
 """Tests for BeatLeader fetcher."""
 
+from datetime import datetime, timezone
+
 import pytest
 import httpx
 
-from bs_map_downloader.models import CUTOFF_TIMESTAMP, Source
+from bs_map_downloader.models import CUTOFF_DATE, Source
 from bs_map_downloader.sources.beatleader import fetch_beatleader
 
 
@@ -25,6 +27,9 @@ def _bl_entry(song_hash: str, ranked_time: int, stars: float = 4.0) -> dict:
 # Timestamps for convenience
 TS_2023 = 1672531200  # 2023-01-01 UTC
 TS_2021 = 1609459200  # 2021-01-01 UTC
+TS_2024 = 1704067200  # 2024-01-01 UTC
+TS_2025 = 1735689600  # 2025-01-01 UTC
+TS_2025_MID = 1751328000  # 2025-07-01 UTC (past 2025-01-01 boundary)
 
 
 def _make_client(pages: dict[int, list[dict]]) -> httpx.AsyncClient:
@@ -43,7 +48,7 @@ async def test_basic_fetch():
         2: [],
     }
     async with _make_client(pages) as client:
-        maps = await fetch_beatleader(client, limit=None)
+        maps = await fetch_beatleader(client, limit=None, since=CUTOFF_DATE, until=None)
 
     assert len(maps) == 1
     assert maps[0].song_hash == "aaa"
@@ -59,7 +64,7 @@ async def test_pagination():
         3: [],
     }
     async with _make_client(pages) as client:
-        maps = await fetch_beatleader(client, limit=None)
+        maps = await fetch_beatleader(client, limit=None, since=CUTOFF_DATE, until=None)
 
     assert len(maps) == 2
 
@@ -73,7 +78,7 @@ async def test_cutoff_filtering():
         ],
     }
     async with _make_client(pages) as client:
-        maps = await fetch_beatleader(client, limit=None)
+        maps = await fetch_beatleader(client, limit=None, since=CUTOFF_DATE, until=None)
 
     assert len(maps) == 1
     assert maps[0].song_hash == "new"
@@ -89,7 +94,7 @@ async def test_deduplication():
         2: [],
     }
     async with _make_client(pages) as client:
-        maps = await fetch_beatleader(client, limit=None)
+        maps = await fetch_beatleader(client, limit=None, since=CUTOFF_DATE, until=None)
 
     assert len(maps) == 1
 
@@ -104,6 +109,60 @@ async def test_limit():
         ],
     }
     async with _make_client(pages) as client:
-        maps = await fetch_beatleader(client, limit=2)
+        maps = await fetch_beatleader(client, limit=2, since=CUTOFF_DATE, until=None)
 
     assert len(maps) == 2
+
+
+@pytest.mark.asyncio
+async def test_custom_since():
+    """Only maps ranked on or after --since are returned."""
+    pages = {
+        1: [
+            _bl_entry("new", TS_2024),
+            _bl_entry("old", TS_2023),
+        ],
+    }
+    since = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    async with _make_client(pages) as client:
+        maps = await fetch_beatleader(client, limit=None, since=since, until=None)
+
+    assert len(maps) == 1
+    assert maps[0].song_hash == "new"
+
+
+@pytest.mark.asyncio
+async def test_custom_until():
+    """Maps ranked after --until are skipped, but fetching continues."""
+    pages = {
+        1: [
+            _bl_entry("future", TS_2025),
+            _bl_entry("in_range", TS_2023),
+        ],
+        2: [],
+    }
+    until = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    async with _make_client(pages) as client:
+        maps = await fetch_beatleader(client, limit=None, since=CUTOFF_DATE, until=until)
+
+    assert len(maps) == 1
+    assert maps[0].song_hash == "in_range"
+
+
+@pytest.mark.asyncio
+async def test_since_and_until():
+    """Only maps in the [since, until] window are returned."""
+    pages = {
+        1: [
+            _bl_entry("too_new", TS_2025_MID),
+            _bl_entry("in_range", TS_2024),
+            _bl_entry("too_old", TS_2023),
+        ],
+    }
+    since = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    until = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    async with _make_client(pages) as client:
+        maps = await fetch_beatleader(client, limit=None, since=since, until=until)
+
+    assert len(maps) == 1
+    assert maps[0].song_hash == "in_range"

@@ -6,17 +6,25 @@ from datetime import datetime, timezone
 import httpx
 
 from bs_map_downloader import console, fetch_progress
-from bs_map_downloader.models import CUTOFF_TIMESTAMP, MapInfo, Source
+from bs_map_downloader.models import MapInfo, Source
 
 BEATLEADER_API = "https://api.beatleader.xyz/leaderboards"
 
 
-async def fetch_beatleader(client: httpx.AsyncClient, limit: int | None) -> list[MapInfo]:
-    """Paginate BeatLeader leaderboards API and collect unique maps ranked from 2022 onwards."""
+async def fetch_beatleader(
+    client: httpx.AsyncClient,
+    limit: int | None,
+    since: datetime,
+    until: datetime | None,
+) -> list[MapInfo]:
+    """Paginate BeatLeader leaderboards API and collect unique maps ranked within the date range."""
     seen_hashes: set[str] = set()
     maps: list[MapInfo] = []
     page = 1
     count = 100
+
+    since_ts = int(since.timestamp())
+    until_ts = int(until.timestamp()) if until else None
 
     with fetch_progress(
         "Fetching BeatLeader leaderboards...",
@@ -52,9 +60,12 @@ async def fetch_beatleader(client: httpx.AsyncClient, limit: int | None) -> list
             stop = False
             for entry in entries:
                 ranked_time = entry.get("difficulty", {}).get("rankedTime", 0)
-                if ranked_time < CUTOFF_TIMESTAMP:
+                if ranked_time < since_ts:
                     stop = True
                     break
+
+                if until_ts and ranked_time > until_ts:
+                    continue
 
                 song = entry.get("song", {})
                 song_hash = song.get("hash", "").lower()
@@ -84,5 +95,6 @@ async def fetch_beatleader(client: httpx.AsyncClient, limit: int | None) -> list
             page += 1
             await asyncio.sleep(0.15)
 
-    console.print(f"[green]BeatLeader: found {len(maps)} unique maps ranked since 2022.[/green]")
+    since_label = since.strftime("%Y-%m-%d")
+    console.print(f"[green]BeatLeader: found {len(maps)} unique maps ranked since {since_label}.[/green]")
     return maps

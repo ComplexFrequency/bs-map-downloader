@@ -6,13 +6,18 @@ from datetime import datetime
 import httpx
 
 from bs_map_downloader import console, fetch_progress
-from bs_map_downloader.models import CUTOFF_DATE, MapInfo, Source
+from bs_map_downloader.models import MapInfo, Source
 
 SCORESABER_API = "https://scoresaber.com/api/leaderboards"
 
 
-async def fetch_scoresaber(client: httpx.AsyncClient, limit: int | None) -> list[MapInfo]:
-    """Paginate ScoreSaber leaderboards API and collect unique maps ranked from 2022 onwards."""
+async def fetch_scoresaber(
+    client: httpx.AsyncClient,
+    limit: int | None,
+    since: datetime,
+    until: datetime | None,
+) -> list[MapInfo]:
+    """Paginate ScoreSaber leaderboards API and collect unique maps ranked within the date range."""
     seen_hashes: set[str] = set()
     maps: list[MapInfo] = []
     page = 1
@@ -45,9 +50,12 @@ async def fetch_scoresaber(client: httpx.AsyncClient, limit: int | None) -> list
             stop = False
             for entry in leaderboards:
                 ranked_date = datetime.fromisoformat(entry["rankedDate"].replace("Z", "+00:00"))
-                if ranked_date < CUTOFF_DATE:
+                if ranked_date < since:
                     stop = True
                     break
+
+                if until and ranked_date > until:
+                    continue
 
                 song_hash = entry["songHash"].lower()
                 if song_hash in seen_hashes:
@@ -75,5 +83,6 @@ async def fetch_scoresaber(client: httpx.AsyncClient, limit: int | None) -> list
             page += 1
             await asyncio.sleep(0.15)
 
-    console.print(f"[green]ScoreSaber: found {len(maps)} unique maps ranked since 2022.[/green]")
+    since_label = since.strftime("%Y-%m-%d")
+    console.print(f"[green]ScoreSaber: found {len(maps)} unique maps ranked since {since_label}.[/green]")
     return maps

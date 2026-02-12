@@ -1,11 +1,12 @@
 """Tests for download logic."""
 
 import asyncio
+import zipfile
 
 import pytest
 import httpx
 
-from bs_map_downloader.downloader import download_all, download_map
+from bs_map_downloader.downloader import download_all, download_map, install_maps
 from bs_map_downloader.models import MapInfo, Source
 
 
@@ -130,3 +131,54 @@ async def test_download_all_nothing_to_do(tmp_path, monkeypatch):
 
     assert len(result) == 1
     assert result[0].song_hash == "done"
+
+
+def _make_zip(path, files: dict[str, bytes]) -> None:
+    """Create a zip file with the given name→content mapping."""
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, content in files.items():
+            zf.writestr(name, content)
+
+
+def test_install_maps_extracts_zips(tmp_path):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    install = tmp_path / "CustomLevels"
+
+    m = _map_info(song_hash="abc123")
+    _make_zip(downloads / "abc123.zip", {"info.dat": b"level data", "song.egg": b"audio"})
+
+    install_maps([m], downloads, install)
+
+    assert (install / "abc123" / "info.dat").read_bytes() == b"level data"
+    assert (install / "abc123" / "song.egg").read_bytes() == b"audio"
+
+
+def test_install_maps_skips_existing(tmp_path):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    install = tmp_path / "CustomLevels"
+
+    m = _map_info(song_hash="abc123")
+    _make_zip(downloads / "abc123.zip", {"info.dat": b"new data"})
+
+    # Pre-create the install directory
+    (install / "abc123").mkdir(parents=True)
+    (install / "abc123" / "info.dat").write_bytes(b"old data")
+
+    install_maps([m], downloads, install)
+
+    # Should not overwrite
+    assert (install / "abc123" / "info.dat").read_bytes() == b"old data"
+
+
+def test_install_maps_skips_missing_zip(tmp_path):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    install = tmp_path / "CustomLevels"
+
+    m = _map_info(song_hash="missing")
+
+    install_maps([m], downloads, install)
+
+    assert not (install / "missing").exists()

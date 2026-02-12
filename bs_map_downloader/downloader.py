@@ -1,6 +1,7 @@
 """Map download logic with concurrency control."""
 
 import asyncio
+import zipfile
 from pathlib import Path
 
 import httpx
@@ -103,3 +104,26 @@ async def download_all(maps: list[MapInfo]) -> list[MapInfo]:
         successful.extend(m for m in pending if results.get(m.song_hash, False))
 
     return successful
+
+
+def install_maps(maps: list[MapInfo], downloads_dir: Path, install_dir: Path) -> None:
+    """Extract downloaded zips into install_dir/{song_hash}/, skipping already-extracted."""
+    install_dir.mkdir(parents=True, exist_ok=True)
+    installed = 0
+    skipped = 0
+
+    for m in maps:
+        dest = install_dir / m.song_hash
+        if dest.exists():
+            skipped += 1
+            continue
+
+        zip_path = downloads_dir / f"{m.song_hash}.zip"
+        if not zip_path.exists():
+            continue
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(dest)
+        installed += 1
+
+    console.print(f"[green]Installed {installed} maps to {install_dir} ({skipped} already present).[/green]")
