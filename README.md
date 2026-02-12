@@ -26,7 +26,7 @@ The scraper is resumable — re-running skips already-downloaded files.
 ## Architecture
 
 ```
-src/bs_map_downloader/
+bs_map_downloader/
 ├── __init__.py          # Console and progress bar utilities
 ├── main.py              # CLI entry point
 ├── models.py            # MapInfo dataclass, Source enum, cutoff constants
