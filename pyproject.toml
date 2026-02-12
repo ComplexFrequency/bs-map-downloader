@@ -12,6 +12,12 @@ dependencies = [
 [project.scripts]
 bs-map-downloader = "bs_map_downloader.main:cli"
 
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
